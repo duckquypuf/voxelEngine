@@ -6,6 +6,7 @@
 #include "shader.h"
 #include "player.h"
 #include "voxelData.h"
+#include "settings.h"
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_callback(GLFWwindow *window, double xpos, double ypos);
@@ -18,8 +19,6 @@ unsigned int loadTexture(const char* filePath);
 World world = World();
 
 Player player = Player(&world);
-
-const float SCR_WIDTH = 1440.0f, SCR_HEIGHT = 900.0f;
 
 float deltaTime, lastFrame = 0.0f;
 bool firstMouse = true;
@@ -49,11 +48,23 @@ int main()
     BlockRegistry::setBlockTexture(STONE, stoneTex);
     BlockRegistry::setBlockTextures(GRASS, grassSideTex, grassTopTex, dirtTex);
 
+    std::vector<unsigned int> textureIDs = {stoneTex, grassTopTex, grassSideTex, dirtTex};
+
     shader.use();
-    //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glEnable(GL_CULL_FACE);
-    glFrontFace(GL_CW);
-    glCullFace(GL_BACK);
+
+    if(ENABLE_WIREFRAME)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    else{
+        glEnable(GL_CULL_FACE);
+        glFrontFace(GL_CW);
+        glCullFace(GL_BACK);
+    }
+
+    for (unsigned int cx = 0; cx < WORLD_WIDTH; cx++) {
+        for (unsigned int cz = 0; cz < WORLD_WIDTH; cz++) {
+            world.chunks[cx][cz].generateMesh(world, cx, cz);
+        }
+    }
 
     while (!glfwWindowShouldClose(window))
     {
@@ -69,12 +80,19 @@ int main()
         player.updateVelocity(window, deltaTime);
 
         shader.setMat4("view", player.camera.getViewMatrix());
-        shader.setMat4("projection", glm::perspective(glm::radians(player.camera.fov), SCR_WIDTH / SCR_HEIGHT, 0.01f, 100.0f));
+        shader.setMat4("projection", glm::perspective(glm::radians(player.camera.fov), SCR_WIDTH / SCR_HEIGHT, 0.01f, 1000.0f));
         shader.setInt("textureSampler", 0);
+
+        shader.use();
+        for (int i = 0; i < 4; i++) {
+            glActiveTexture(GL_TEXTURE0 + i);
+            glBindTexture(GL_TEXTURE_2D, textureIDs[i]);
+            shader.setInt(("textures[" + std::to_string(i) + "]").c_str(), i);
+        }
 
         for (unsigned int cx = 0; cx < WORLD_WIDTH; cx++) {
             for (unsigned int cz = 0; cz < WORLD_WIDTH; cz++) {
-                world.chunks[cx][cz].generateMesh(world, shader, VAO, cx, cz);
+                world.chunks[cx][cz].renderMesh(shader, cx, cz);
             }
         }
 
