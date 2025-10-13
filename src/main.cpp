@@ -8,6 +8,10 @@
 #include "voxelData.h"
 #include "settings.h"
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_callback(GLFWwindow *window, double xpos, double ypos);
 void processInput(GLFWwindow *window);
@@ -22,6 +26,8 @@ Player player = Player(&world);
 
 float deltaTime, lastFrame = 0.0f;
 bool firstMouse = true;
+bool mouseLocked = true;
+static bool lKeyPressedLastFrame = false;
 float lastX, lastY;
 
 int main()
@@ -66,6 +72,13 @@ int main()
         }
     }
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+
     while (!glfwWindowShouldClose(window))
     {
         float currentFrame = glfwGetTime();
@@ -96,6 +109,18 @@ int main()
             }
         }
 
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::Begin("Hello GUI");
+        ImGui::Text("Player pos: %.2f %.2f %.2f", player.pos.x, player.pos.y, player.pos.z);
+        ImGui::SliderFloat("FOV", &player.camera.fov, 30.0f, 120.0f);
+        ImGui::End();
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -111,6 +136,17 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
 void processInput(GLFWwindow *window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) {
+        if (!lKeyPressedLastFrame) {
+            mouseLocked = !mouseLocked;
+            glfwSetInputMode(window, GLFW_CURSOR, mouseLocked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+        }
+
+        lKeyPressedLastFrame = true;
+    }
+    else
+        lKeyPressedLastFrame = false;
 }
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
