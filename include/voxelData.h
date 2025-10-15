@@ -4,10 +4,17 @@
 #include <math.h>
 #include <vector>
 #include <iostream>
+#include <unordered_map>
+#include "FastNoiseLite.h"
 
 constexpr unsigned int CHUNK_WIDTH = 16;
 constexpr unsigned int CHUNK_HEIGHT = 64;
-constexpr unsigned int WORLD_WIDTH = 10;
+constexpr unsigned int TERRAIN_MIN_HEIGHT = 48;
+constexpr unsigned int TERRAIN_MAX_HEIGHT = 64;
+constexpr unsigned int WORLD_WIDTH = 100;
+constexpr unsigned int RENDER_DISTANCE = 20;
+
+static FastNoiseLite noise;
 
 const glm::ivec3 faceChecks[] = {
     glm::ivec3(0, 0, -1), // Front - 0
@@ -135,6 +142,13 @@ struct Quad
     FaceDirection face;
 };
 
+float getHeight(float x, float z)
+{
+    float n = noise.GetNoise(x, z);
+    n = (n + 1.0f) * 0.5f;
+    return TERRAIN_MIN_HEIGHT + n * (TERRAIN_MAX_HEIGHT-TERRAIN_MIN_HEIGHT);
+}
+
 class Chunk
 {
 public:
@@ -143,9 +157,11 @@ public:
     unsigned int VAO = 0, VBO = 0;
     size_t vertexCount = 0;
     bool needsRebuild = true;
+    bool needsRender = false;
+    bool isPopulated = false;
 
     Chunk() {
-        populateVoxelMap();
+        needsRebuild = false;
     }
 
     ~Chunk() {
@@ -155,16 +171,18 @@ public:
             glDeleteBuffers(1, &VBO);
     }
 
-    void populateVoxelMap()
+    void populateVoxelMap(int cx, int cz)
     {
         for (int x = 0; x < CHUNK_WIDTH; x++) {
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 for (int z = 0; z < CHUNK_WIDTH; z++) {
+                    float height = (int)getHeight(x + cx * CHUNK_WIDTH, z + cz * CHUNK_WIDTH);
+
                     if (y == 0) {
                         voxelMap[x][y][z] = STONE;
-                    } else if (y < CHUNK_HEIGHT-1) {
+                    } else if (y < height-1) {
                         voxelMap[x][y][z] = DIRT;
-                    } else if (y == CHUNK_HEIGHT-1) {
+                    } else if (y == height-1) {
                         voxelMap[x][y][z] = GRASS;
                     } else {
                         voxelMap[x][y][z] = AIR;
@@ -172,16 +190,18 @@ public:
                 }
             }
         }
+
+        isPopulated = true;
     }
 
-    BlockType getBlock(int x, int y, int z)
+    BlockType getBlock(int x, int y, int z, int chunkX = 0, int chunkZ = 0)
     {
-        if (x < 0 || x >= CHUNK_WIDTH ||
-            y < 0 || y >= CHUNK_HEIGHT ||
-            z < 0 || z >= CHUNK_WIDTH)
-        {
+        if(!isPopulated)
+            populateVoxelMap(chunkX, chunkZ);
+        if (x < 0 || x >= CHUNK_WIDTH || y < 0 || y >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_WIDTH) {
             return AIR;
         }
+
         return voxelMap[x][y][z];
     }
 
@@ -204,8 +224,17 @@ class World
 {
 public:
     Chunk chunks[WORLD_WIDTH][WORLD_WIDTH];
+    //std::unordered_map<std::pair<int, int>, Chunk, pairHash> chunks;
 
     World() {
+        noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+        noise.SetFrequency(0.005f);
+        noise.SetFractalType(FastNoiseLite::FractalType_FBm);
+        noise.SetFractalOctaves(1);
+        noise.SetFractalLacunarity(2.0f);
+        noise.SetFractalGain(0.5f);
+
+        noise.SetSeed(1234);
     }
 
     BlockType getBlock(int chunkX, int chunkZ, int localX, int localY, int localZ)
@@ -215,24 +244,18 @@ public:
         int targetLocalX = localX;
         int targetLocalZ = localZ;
 
-        if (localX < 0)
-        {
+        if (localX < 0) {
             targetChunkX--;
             targetLocalX += CHUNK_WIDTH;
-        }
-        else if (localX >= CHUNK_WIDTH)
-        {
+        } else if (localX >= CHUNK_WIDTH) {
             targetChunkX++;
             targetLocalX -= CHUNK_WIDTH;
         }
 
-        if (localZ < 0)
-        {
+        if (localZ < 0) {
             targetChunkZ--;
             targetLocalZ += CHUNK_WIDTH;
-        }
-        else if (localZ >= CHUNK_WIDTH)
-        {
+        } else if (localZ >= CHUNK_WIDTH) {
             targetChunkZ++;
             targetLocalZ -= CHUNK_WIDTH;
         }
@@ -244,7 +267,7 @@ public:
             return AIR;
         }
 
-        return chunks[targetChunkX][targetChunkZ].getBlock(targetLocalX, localY, targetLocalZ);
+        return chunks[targetChunkX][targetChunkZ].getBlock(targetLocalX, localY, targetLocalZ, targetChunkX, targetChunkZ);
     }
 
     BlockType getBlock(float worldX, float worldY, float worldZ) {
@@ -301,8 +324,6 @@ public:
             return false;
         }
 
-        std::cout << "Checking block at Chunk(" << chunkX << ", " << chunkZ << ") Local(" << localX << ", " << worldY << ", " << localZ << ")\n";
-
         return isBlockSolid(chunkX, chunkZ, localX, worldY, localZ);
     }
 
@@ -340,8 +361,9 @@ inline void Chunk::generateMesh(World &world, int cx, int cz)
             for (unsigned int z = 0; z < CHUNK_WIDTH; z++) {
                 BlockType blockType = getBlock(x, y, z);
 
-                if (blockType == AIR)
+                if (blockType == AIR) {
                     continue;
+                }
 
                 for(unsigned int p = 0; p < 6; p++) {
                     int nx = (int)x + faceChecks[p].x;
