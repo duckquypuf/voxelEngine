@@ -9,10 +9,14 @@
 #include "voxelData.h"
 #include "settings.h"
 
+#include "customgui.h"
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
+void renderDistance();
+void renderChunks(Shader& shader);
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_callback(GLFWwindow *window, double xpos, double ypos);
 void processInput(GLFWwindow *window);
@@ -31,10 +35,18 @@ bool mouseLocked = true;
 static bool lKeyPressedLastFrame = false;
 float lastX, lastY;
 
+float FPS = 0.0f;
+
+float lastFPSUpdate = 0.0f;
+float FPSUpdateInterval = 1.0f;
+
+bool firstFrame = true;
+
 int main()
 {
     GLFWwindow *window = setupWindow("Voxel Engine");
     Shader shader = Shader("../src/1.shader.vs", "../src/1.shader.fs");
+    Shader hudShader = Shader("../src/hud.vs", "../src/hud.fs");
 
     lastX = SCR_WIDTH / 2;
     lastY = SCR_HEIGHT / 2;
@@ -58,6 +70,10 @@ int main()
     std::vector<unsigned int> textureIDs = {stoneTex, grassTopTex, grassSideTex, dirtTex};
 
     shader.use();
+
+    GuiManager manager = GuiManager(SCR_WIDTH, SCR_HEIGHT, &hudShader);
+    manager.AddElement(GuiElement(720, 450, {GuiDrawing(PANEL, glm::vec2(20, 2), 0.0f, glm::vec3(1.0f, 1.0f, 1.0f))}));
+    manager.AddElement(GuiElement(720, 450, {GuiDrawing(PANEL, glm::vec2(2, 20), 0.0f, glm::vec3(1.0f, 1.0f, 1.0f))}));
 
     if(ENABLE_WIREFRAME)
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -106,69 +122,38 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        if(currentFrame - lastFPSUpdate > FPSUpdateInterval) {
+            lastFPSUpdate = currentFrame;
+            FPS = (1.0f / deltaTime);
+        }
+
         processInput(window);
 
         glClearColor(0.53f, 0.81f, 0.92f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        player.updateVelocity(window, deltaTime);
-
-        if(player.chunkX != player.lastChunkX || player.chunkZ != player.lastChunkZ) {
-            for (unsigned int cx = player.chunkX - RENDER_DISTANCE; cx < player.chunkX + RENDER_DISTANCE; cx++) {
-                for (unsigned int cz = player.chunkZ - RENDER_DISTANCE; cz < player.chunkZ + RENDER_DISTANCE; cz++) {
-                    if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
-                        continue;
-
-                    Chunk& chunk = world.chunks[cx][cz];
-                    if (!chunk.isPopulated) {
-                        chunk.populateVoxelMap(cx, cz);
-                    }
-
-                    if(!chunk.needsRebuild && !chunk.needsRender) {
-                        chunk.generateMesh(world, cx, cz);
-                        chunk.needsRender = true;
-                    }
-                }
-            }
-        }
+        if(!firstFrame)
+            player.updateVelocity(window, deltaTime);
 
         shader.setMat4("view", player.camera.getViewMatrix());
         shader.setMat4("projection", glm::perspective(glm::radians(player.camera.fov), SCR_WIDTH / SCR_HEIGHT, 0.01f, 1000.0f));
         shader.setInt("textureSampler", 0);
 
-        shader.use();
         for (int i = 0; i < 4; i++) {
             glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D, textureIDs[i]);
             shader.setInt(("textures[" + std::to_string(i) + "]").c_str(), i);
         }
 
-
-        for (unsigned int cx = std::max(0, player.chunkX - (int)RENDER_DISTANCE); cx < std::min((int)WORLD_WIDTH, player.chunkX + (int)RENDER_DISTANCE); cx++) {
-            for (unsigned int cz = std::max(0, player.chunkZ - (int)RENDER_DISTANCE); cz < std::min((int)WORLD_WIDTH, player.chunkZ + (int)RENDER_DISTANCE); cz++) {
-                if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
-                    continue;
-
-                Chunk& chunk = world.chunks[cx][cz];
-
-                if (chunk.needsRender) {
-                    chunk.renderMesh(shader, cx, cz);
-                }
-
-                if(chunk.needsRebuild) {
-                    if(!chunk.isPopulated)
-                        chunk.populateVoxelMap(cx, cz);
-                    chunk.generateMesh(world, cx, cz);
-                    chunk.needsRender = true;
-                }
-            }
-        }
+        renderDistance();
+        renderChunks(shader);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
         ImGui::Begin("Hello GUI");
+        ImGui::Text("FPS: %.2f", FPS);
         ImGui::Text("Player pos: %.2f %.2f %.2f", player.pos.x, player.pos.y, player.pos.z);
         ImGui::Text("Player real: %.2f %.2f %.2f", player.feet.x, player.feet.y, player.feet.z);
         ImGui::SliderFloat("FOV", &player.camera.fov, 30.0f, 120.0f);
@@ -177,12 +162,73 @@ int main()
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        hudShader.use();
+        manager.Render();
+        shader.use();
+
+        glEnable(GL_DEPTH_TEST);
+
         glfwSwapBuffers(window);
         glfwPollEvents();
+
+        if(firstFrame)
+            firstFrame = false;
     }
 
     glfwTerminate();
     return 0;
+}
+
+void renderDistance() {
+    if (player.chunkX != player.lastChunkX || player.chunkZ != player.lastChunkZ)
+    {
+        for (unsigned int cx = player.chunkX - RENDER_DISTANCE; cx < player.chunkX + RENDER_DISTANCE; cx++)
+        {
+            for (unsigned int cz = player.chunkZ - RENDER_DISTANCE; cz < player.chunkZ + RENDER_DISTANCE; cz++)
+            {
+                if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
+                    continue;
+
+                Chunk &chunk = world.chunks[cx][cz];
+                if (!chunk.isPopulated)
+                {
+                    chunk.populateVoxelMap(cx, cz);
+                }
+
+                if (!chunk.needsRebuild && !chunk.needsRender)
+                {
+                    chunk.generateMesh(world, cx, cz);
+                    chunk.needsRender = true;
+                }
+            }
+        }
+    }
+}
+
+void renderChunks(Shader& shader) {
+    for (unsigned int cx = std::max(0, player.chunkX - (int)RENDER_DISTANCE); cx < std::min((int)WORLD_WIDTH, player.chunkX + (int)RENDER_DISTANCE); cx++)
+    {
+        for (unsigned int cz = std::max(0, player.chunkZ - (int)RENDER_DISTANCE); cz < std::min((int)WORLD_WIDTH, player.chunkZ + (int)RENDER_DISTANCE); cz++)
+        {
+            if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
+                continue;
+
+            Chunk &chunk = world.chunks[cx][cz];
+
+            if (chunk.needsRender)
+            {
+                chunk.renderMesh(shader, cx, cz);
+            }
+
+            if (chunk.needsRebuild)
+            {
+                if (!chunk.isPopulated)
+                    chunk.populateVoxelMap(cx, cz);
+                chunk.generateMesh(world, cx, cz);
+                chunk.needsRender = true;
+            }
+        }
+    }
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
