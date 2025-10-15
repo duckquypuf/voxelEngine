@@ -51,14 +51,15 @@ class Player{
             chunkZ = (int)(feet.z / CHUNK_WIDTH);
         }
 
-        void updateVelocity(GLFWwindow* window, float deltaTime) {
+        void updateVelocity(GLFWwindow *window, float deltaTime)
+        {
             lastChunkX = chunkX;
             lastChunkZ = chunkZ;
 
             glm::vec3 prevFeet = feet;
             glm::vec3 dir = processKeyboardInputs(window, deltaTime);
 
-            if(gamemode != SURVIVAL)
+            if (gamemode != SURVIVAL)
                 movementSpeed = spectatorSpeed;
             else
                 movementSpeed = 8.0f;
@@ -66,7 +67,7 @@ class Player{
             velocity.x += diff.x * deltaTime;
             velocity.z += diff.z * deltaTime;
 
-            if(ENABLE_GRAVITY && !isGrounded)
+            if (ENABLE_GRAVITY && !isGrounded)
                 velocity.y -= 30.0f * deltaTime;
 
             if (isGrounded)
@@ -74,33 +75,54 @@ class Player{
             else
                 coyoteTimer -= deltaTime;
 
-            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && coyoteTimer > 0.0f && gamemode == SURVIVAL) {
+            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && coyoteTimer > 0.0f && gamemode == SURVIVAL)
+            {
                 velocity.y = jumpStrength;
                 coyoteTimer = 0.0f;
             }
 
-            if(gamemode != SURVIVAL) {
+            if (gamemode != SURVIVAL)
+            {
                 velocity.y = dir.y;
             }
 
-            feet += velocity * deltaTime;
+            float playerW = 0.5f;
+            float playerH = 1.8f;
 
-            if (world->isPlayerColliding(feet.x, feet.y, feet.z, 0.5f, 1.8f) && ENABLE_COLLISIONS) {
-                isGrounded = true;
-                velocity.y = 0;
-                feet.y = prevFeet.y;
-            } else {
-                isGrounded = false;
-            }
-
-            if (world->isPlayerColliding(feet.x, feet.y, feet.z, 0.5f, 1.8f) && ENABLE_COLLISIONS) {
-                velocity.x = 0;
+            // move X axis
+            feet.x = prevFeet.x + velocity.x * deltaTime;
+            if (world->isPlayerColliding(feet.x, prevFeet.y, prevFeet.z, playerW, playerH) && ENABLE_COLLISIONS)
+            {
                 feet.x = prevFeet.x;
+                velocity.x = 0.0f;
             }
 
-            if (world->isPlayerColliding(feet.x, feet.y, feet.z, 0.5f, 1.8f) && ENABLE_COLLISIONS) {
-                velocity.z = 0;
+            // move Z axis
+            feet.z = prevFeet.z + velocity.z * deltaTime;
+            if (world->isPlayerColliding(feet.x, prevFeet.y, feet.z, playerW, playerH) && ENABLE_COLLISIONS)
+            {
                 feet.z = prevFeet.z;
+                velocity.z = 0.0f;
+            }
+
+            // move Y axis
+            feet.y = prevFeet.y + velocity.y * deltaTime;
+            if (world->isPlayerColliding(feet.x, feet.y, feet.z, playerW, playerH) && ENABLE_COLLISIONS)
+            {
+                if (velocity.y < 0.0f)
+                {
+                    isGrounded = true;
+                }
+                else
+                {
+                    isGrounded = false;
+                }
+                velocity.y = 0.0f;
+                feet.y = prevFeet.y;
+            }
+            else
+            {
+                isGrounded = false;
             }
 
             velocity.x *= (1.0f - decel * deltaTime);
@@ -108,7 +130,7 @@ class Player{
 
             camera.setPosition(feet + glm::vec3(0.0f, 1.8f, 0.0f));
 
-            pos = glm::vec3(feet.x-worldCentreOffset, feet.y, feet.z-worldCentreOffset);
+            pos = glm::vec3(feet.x - worldCentreOffset, feet.y, feet.z - worldCentreOffset);
             chunkX = (int)(feet.x / CHUNK_WIDTH);
             chunkZ = (int)(feet.z / CHUNK_WIDTH);
         }
