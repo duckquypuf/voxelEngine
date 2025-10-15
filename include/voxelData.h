@@ -326,20 +326,31 @@ public:
         return isBlockSolid(chunkX, chunkZ, localX, worldY, localZ);
     }
 
-    bool isPlayerColliding(float playerX, float playerY, float playerZ, float playerWidth, float playerHeight) {
+    bool isPlayerColliding(float playerX, float playerY, float playerZ, float playerWidth, float playerHeight)
+    {
         float halfWidth = playerWidth / 2.0f;
 
-        int minX = floor(playerX - halfWidth);
-        int maxX = floor(playerX + halfWidth);
-        int minY = floor(playerY);
-        int maxY = floor(playerY + playerHeight);
-        int minZ = floor(playerZ - halfWidth);
-        int maxZ = floor(playerZ + halfWidth);
+        float minX = playerX - halfWidth;
+        float maxX = playerX + halfWidth;
+        float minY = playerY;
+        float maxY = playerY + playerHeight;
+        float minZ = playerZ - halfWidth;
+        float maxZ = playerZ + halfWidth;
 
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    if (isBlockSolid(x, y, z))
+        int minBX = (int)floor(minX);
+        int maxBX = (int)floor(maxX);
+        int minBY = (int)floor(minY);
+        int maxBY = (int)floor(maxY);
+        int minBZ = (int)floor(minZ);
+        int maxBZ = (int)floor(maxZ);
+
+        for (int bx = minBX; bx <= maxBX; bx++)
+        {
+            for (int by = minBY; by <= maxBY; by++)
+            {
+                for (int bz = minBZ; bz <= maxBZ; bz++)
+                {
+                    if (isBlockSolid((float)bx, (float)by, (float)bz))
                         return true;
                 }
             }
