@@ -224,7 +224,6 @@ class World
 {
 public:
     Chunk chunks[WORLD_WIDTH][WORLD_WIDTH];
-    //std::unordered_map<std::pair<int, int>, Chunk, pairHash> chunks;
 
     World() {
         noise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
@@ -331,11 +330,11 @@ public:
         float halfWidth = playerWidth / 2.0f;
 
         int minX = floor(playerX - halfWidth);
-        int maxX = ceil(playerX + halfWidth);
+        int maxX = floor(playerX + halfWidth);
         int minY = floor(playerY);
-        int maxY = ceil(playerY + playerHeight);
+        int maxY = floor(playerY + playerHeight);
         int minZ = floor(playerZ - halfWidth);
-        int maxZ = ceil(playerZ + halfWidth);
+        int maxZ = floor(playerZ + halfWidth);
 
         for (int x = minX; x <= maxX; x++) {
             for (int y = minY; y <= maxY; y++) {
