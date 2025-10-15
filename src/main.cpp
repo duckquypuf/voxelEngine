@@ -1,6 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <algorithm>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "shader.h"
@@ -66,9 +67,29 @@ int main()
         glCullFace(GL_BACK);
     }
 
-    for (unsigned int cx = 0; cx < WORLD_WIDTH; cx++) {
-        for (unsigned int cz = 0; cz < WORLD_WIDTH; cz++) {
-            world.chunks[cx][cz].generateMesh(world, cx, cz);
+    for (unsigned int cx = player.chunkX - RENDER_DISTANCE; cx < player.chunkX + RENDER_DISTANCE; cx++)
+    {
+        for (unsigned int cz = player.chunkZ - RENDER_DISTANCE; cz < player.chunkZ + RENDER_DISTANCE; cz++)
+        {
+            if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
+                continue;
+
+            Chunk& chunk = world.chunks[cx][cz];
+            if(!chunk.isPopulated)
+                chunk.populateVoxelMap(cx, cz);
+        }
+    }
+
+    for (unsigned int cx = player.chunkX - RENDER_DISTANCE; cx < player.chunkX + RENDER_DISTANCE; cx++)
+    {
+        for (unsigned int cz = player.chunkZ - RENDER_DISTANCE; cz < player.chunkZ + RENDER_DISTANCE; cz++)
+        {
+            if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
+                continue;
+
+            Chunk& chunk = world.chunks[cx][cz];
+            chunk.generateMesh(world, cx, cz);
+            chunk.needsRender = true;
         }
     }
 
@@ -92,6 +113,25 @@ int main()
 
         player.updateVelocity(window, deltaTime);
 
+        if(player.chunkX != player.lastChunkX || player.chunkZ != player.lastChunkZ) {
+            for (unsigned int cx = player.chunkX - RENDER_DISTANCE; cx < player.chunkX + RENDER_DISTANCE; cx++) {
+                for (unsigned int cz = player.chunkZ - RENDER_DISTANCE; cz < player.chunkZ + RENDER_DISTANCE; cz++) {
+                    if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
+                        continue;
+
+                    Chunk& chunk = world.chunks[cx][cz];
+                    if (!chunk.isPopulated) {
+                        chunk.populateVoxelMap(cx, cz);
+                    }
+
+                    if(!chunk.needsRebuild && !chunk.needsRender) {
+                        chunk.generateMesh(world, cx, cz);
+                        chunk.needsRender = true;
+                    }
+                }
+            }
+        }
+
         shader.setMat4("view", player.camera.getViewMatrix());
         shader.setMat4("projection", glm::perspective(glm::radians(player.camera.fov), SCR_WIDTH / SCR_HEIGHT, 0.01f, 1000.0f));
         shader.setInt("textureSampler", 0);
@@ -103,9 +143,24 @@ int main()
             shader.setInt(("textures[" + std::to_string(i) + "]").c_str(), i);
         }
 
-        for (unsigned int cx = 0; cx < WORLD_WIDTH; cx++) {
-            for (unsigned int cz = 0; cz < WORLD_WIDTH; cz++) {
-                world.chunks[cx][cz].renderMesh(shader, cx, cz);
+
+        for (unsigned int cx = std::max(0, player.chunkX - (int)RENDER_DISTANCE); cx < std::min((int)WORLD_WIDTH, player.chunkX + (int)RENDER_DISTANCE); cx++) {
+            for (unsigned int cz = std::max(0, player.chunkZ - (int)RENDER_DISTANCE); cz < std::min((int)WORLD_WIDTH, player.chunkZ + (int)RENDER_DISTANCE); cz++) {
+                if (cx < 0 || cx >= WORLD_WIDTH || cz < 0 || cz >= WORLD_WIDTH)
+                    continue;
+
+                Chunk& chunk = world.chunks[cx][cz];
+
+                if (chunk.needsRender) {
+                    chunk.renderMesh(shader, cx, cz);
+                }
+
+                if(chunk.needsRebuild) {
+                    if(!chunk.isPopulated)
+                        chunk.populateVoxelMap(cx, cz);
+                    chunk.generateMesh(world, cx, cz);
+                    chunk.needsRender = true;
+                }
             }
         }
 
@@ -115,6 +170,7 @@ int main()
 
         ImGui::Begin("Hello GUI");
         ImGui::Text("Player pos: %.2f %.2f %.2f", player.pos.x, player.pos.y, player.pos.z);
+        ImGui::Text("Player real: %.2f %.2f %.2f", player.feet.x, player.feet.y, player.feet.z);
         ImGui::SliderFloat("FOV", &player.camera.fov, 30.0f, 120.0f);
         ImGui::End();
 
