@@ -17,15 +17,46 @@
 class Engine
 {
 public:
-    Shader* shader;
+    Shader *shader;
+    Shader *outlineShader;
     World *world;
-    Player* player;
+    Player *player;
 
-    GLFWwindow* window;
+    GLFWwindow *window;
 
     Engine()
     {
         initOpenGL();
+
+        float outlineEdges[] = {
+            // 12 edges of the cube (24 vertices for 12 lines)
+            -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, // bottom edges
+            0.5f, -0.5f, -0.5f, 0.5f, -0.5f, 0.5f,
+            0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f,
+            -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f,
+
+            -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, // top edges
+            0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+            0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
+            -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f,
+
+            -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, // vertical edges
+            0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f,
+            0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f,
+            -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f
+        };
+
+        glGenVertexArrays(1, &outlineVAO);
+        glGenBuffers(1, &outlineVBO);
+
+        glBindVertexArray(outlineVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, outlineVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(outlineEdges), outlineEdges, GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+
+        outlineShader = new Shader("../src/outline_vertex.glsl", "../src/outline_fragment.glsl", "../src/outline_geometry.glsl");
 
         glFrontFace(GL_CCW);
         glCullFace(GL_BACK);
@@ -37,7 +68,6 @@ public:
         glBindTexture(GL_TEXTURE_2D, atlasID);
 
         shader = new Shader("../src/vertex.glsl", "../src/fragment.glsl");
-        shader->use();
         shader->setInt("atlasSampler", 0);
 
         world = new World();
@@ -57,24 +87,32 @@ public:
 
     void run()
     {
+        glm::vec3 skyColour = glm::vec3(0.6f, 0.95f, 1.0f);
+        glm::vec3 waterSkyColour = glm::vec3(29.0f/255.0f, 86.0f/255.0f, 191.0f/255.0f);
         while (!glfwWindowShouldClose(window) && shouldRun)
         {
-            glClearColor(0.6f, 0.95f, 1.0f, 1.0f);
+            if(!player->isHeadInWater()) glClearColor(skyColour.r, skyColour.g, skyColour.b, 1.0f);
+            else glClearColor(waterSkyColour.r, waterSkyColour.g, waterSkyColour.b, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             calculateDeltaTime();
 
             processInput(window, dt);
 
-            if(!paused)
+            glm::mat4 view = player->camera->GetViewMatrix();
+            glm::mat4 projection = player->camera->GetProjectionMatrix();
+
+            if (!paused)
             {
                 player->processInput(window, dt);
                 player->updatePhysics(dt);
                 player->updateCoord();
 
-                if(player->gamemode == CREATIVE || player->gamemode == SURVIVAL) player->checkBlock();
+                if (player->gamemode == CREATIVE || player->gamemode == SURVIVAL)
+                    player->checkBlock();
 
-                if((!(player->lastCoord == player->coord) || player->checkRD()) && useRD) world->updateRenderDistance(player->coord);
+                if ((!(player->lastCoord == player->coord) && useRD) || player->checkRD())
+                    world->updateRenderDistance(player->coord);
 
                 int chunksPerFrame = 2;
                 for (int i = 0; i < chunksPerFrame && !world->chunksToGenerate.empty(); i++)
@@ -98,11 +136,34 @@ public:
                     ChunkCoord coord(x, z);
                     auto it = world->chunks.find(coord);
                     if (it != world->chunks.end() && it->second != nullptr)
-                        it->second->renderChunk(shader, player->camera->GetViewMatrix(), player->camera->GetProjectionMatrix());
+                    {
+                        it->second->renderChunk(shader, view, projection);
+                    }
                 }
             }
 
             player->lastCoord = player->coord;
+
+            if(player->gamemode != SPECTATOR)
+            {
+                glm::vec3 blockPos = player->getViewBlock();
+                glm::mat4 model = glm::mat4(1.0f);
+                model = glm::translate(model, blockPos);
+
+                outlineShader->use();
+                outlineShader->setMat4("model", model);
+                outlineShader->setMat4("view", view);
+                outlineShader->setMat4("projection", projection);
+                outlineShader->setFloat("lineWidth", 3.0f);
+                outlineShader->setVec3("outlineColor", glm::vec3(0.0f, 0.0f, 0.0f));
+
+                glDisable(GL_DEPTH_TEST);
+                glBindVertexArray(outlineVAO);
+                glCullFace(GL_FRONT);
+                glDrawArrays(GL_LINES, 0, 24);
+                glCullFace(GL_BACK);
+                glEnable(GL_DEPTH_TEST);
+            }
 
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
@@ -118,8 +179,9 @@ public:
             glfwPollEvents();
         }
     }
+
 private:
-    unsigned int VAO, VBO;
+    unsigned int outlineVAO, outlineVBO;
     unsigned int atlasID;
 
     float lastFrame;
@@ -137,8 +199,8 @@ private:
 
         delete shader;
         delete player;
-        glDeleteBuffers(1, &VBO);
-        glDeleteVertexArrays(1, &VAO);
+        glDeleteBuffers(1, &outlineVBO);
+        glDeleteVertexArrays(1, &outlineVAO);
         glfwTerminate();
     }
 
@@ -220,7 +282,7 @@ private:
 
         for (int i = 0; i < lodeCount; i++)
         {
-            Lode& lode = lodes[i];
+            Lode &lode = lodes[i];
 
             if (ImGui::CollapsingHeader(lode.name.c_str()))
             {
@@ -230,8 +292,8 @@ private:
                 float sc = lode.scale;
                 float thresh = lode.threshold;
 
-                ImGui::SliderInt("Min Height", &minH, 1, chunkHeight-1);
-                ImGui::SliderInt("Max Height", &maxH, 1, chunkHeight-1);
+                ImGui::SliderInt("Min Height", &minH, 1, chunkHeight - 1);
+                ImGui::SliderInt("Max Height", &maxH, 1, chunkHeight - 1);
                 ImGui::InputFloat("Noise Offset", &offs, 1.0f, 100000.0f);
                 ImGui::InputFloat("Noise Scale", &sc, 0.001f, 1.0f);
                 ImGui::InputFloat("Threshold", &thresh, 0.0f, 1.0f);
@@ -306,9 +368,12 @@ private:
             std::cout << "Texture loaded successfully: " << width << "x" << height << " with " << nrComponents << " components" << std::endl;
             GLenum format;
 
-            if (nrComponents == 1) format = GL_RED;
-            else if (nrComponents == 3) format = GL_RGB;
-            else if (nrComponents == 4) format = GL_RGBA;
+            if (nrComponents == 1)
+                format = GL_RED;
+            else if (nrComponents == 3)
+                format = GL_RGB;
+            else if (nrComponents == 4)
+                format = GL_RGBA;
 
             glBindTexture(GL_TEXTURE_2D, id);
             glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
@@ -334,14 +399,16 @@ private:
 
     void processInput(GLFWwindow *window, float dt)
     {
-        if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) shouldRun = false;
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            shouldRun = false;
 
-        if(glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) 
+        if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS)
         {
-            if(!pauseClicked)
+            if (!pauseClicked)
                 paused = !paused;
             pauseClicked = true;
-        } else
+        }
+        else
         {
             pauseClicked = false;
         }
