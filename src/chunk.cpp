@@ -35,15 +35,17 @@ void Chunk::generateMesh()
         bool layerHasBlocks = false;
         for (int x = 0; x < chunkWidth && !layerHasBlocks; x++)
             for (int z = 0; z < chunkWidth && !layerHasBlocks; z++)
-                if (!voxelMap[x][y][z].isAir) layerHasBlocks = true;
+                if (!voxelMap[x][y][z].isAir)
+                    layerHasBlocks = true;
 
-        if (!layerHasBlocks) continue;
+        if (!layerHasBlocks)
+            continue;
 
         for (int x = 0; x < chunkWidth; x++)
         {
             for (int z = 0; z < chunkWidth; z++)
             {
-                BlockType &block = voxelMap[x][y][z];
+                const BlockType &block = voxelMap[x][y][z];
                 if (block.isAir)
                     continue;
 
@@ -53,8 +55,11 @@ void Chunk::generateMesh()
                     int ny = y + faceChecks[p][1];
                     int nz = z + faceChecks[p][2];
 
-                    if (!world->isVoxelSolid(coord, nx, ny, nz) || world->isVoxelTransparent(coord, nx, ny, nz))
+                    const BlockType &nBlock = world->getVoxel(coord, nx, ny, nz);
+
+                    if (nBlock.isAir || nBlock.isTransparent)
                     {
+                        if(nBlock.isLiquid && block.isLiquid) continue;
                         // Draw face
                         int offset = p * 48; // 6 verts * 8 floats
                         const int stride = 8;
@@ -114,7 +119,7 @@ void Chunk::generateMesh()
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    
+
     shouldRegen = false;
 }
 
