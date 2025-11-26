@@ -4,8 +4,8 @@ int worldWidth = 100;
 int chunkWidth = 16;
 int chunkHeight = 128;
 
-float biomeScale = 0.02f;
-int terrainMinHeight = 32;
+float biomeScale = 0.007f;
+int terrainMinHeight = 50;
 int terrainHeight = 52;
 
 float caveGenLargeScale = 0.02f;
@@ -15,7 +15,7 @@ float caveGenThreshold = 0.6f;
 
 Lode lodes[] = 
 {
-    Lode("Dirt", 2, 0.1f, 0.7f, 1000.0f, 20, 50),
+    Lode("Dirt", 2, 0.1f, 0.76f, 1000.0f, 20, 50),
 };
 int lodeCount = 1;
 
@@ -29,10 +29,8 @@ int treePlacementOffset = 1000;
 int treeMinHeight = 4;
 int treeMaxHeight = 7;
 
-bool useRD = true;
+bool useRD = false;
 int renderDistance = 5;
-
-float gravity = 10.0f;
 
 float cubeVertices[] = {
     // Position (3D)       | Normal (3D)         | TexCoords (2D)
@@ -97,10 +95,13 @@ int faceChecks[6][3] = {
 
 BlockType blockTypes[] =
 {
+    //         Textures           Solid  Name   Transp Air Liquid
     BlockType({0, 0, 0, 0, 0, 0}, false, "Air", true, true),
     BlockType({1, 1, 1, 1, 0, 2}, true, "Grass Block"),
     BlockType({2, 2, 2, 2, 2, 2}, true, "Dirt Block"),
     BlockType({3, 3, 3, 3, 3, 3}, true, "Stone Block"),
     BlockType({4, 4, 4, 4, 5, 5}, true, "Oak Log"),
     BlockType({6, 6, 6, 6, 6, 6}, true, "Oak Leaves", true),
+    BlockType({7, 7, 7, 7, 7, 7}, true, "Sand"),
+    BlockType({8, 8, 8, 8, 8, 8}, false, "Water", true, false, true),
 };
