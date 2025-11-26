@@ -44,7 +44,7 @@ public:
         this->camera = camera;
         this->gamemode = gamemode;
 
-        position = glm::vec3(worldWidth / 2.0f * chunkWidth, 500.0f, worldWidth / 2.0f * chunkWidth);
+        position = glm::vec3(worldWidth / 2.0f * chunkWidth, 200.0f, worldWidth / 2.0f * chunkWidth);
         velocity = glm::vec3(0.0f);
 
         coord = ChunkCoord(floor(worldWidth/2), floor(worldWidth/2));
@@ -59,6 +59,30 @@ public:
     void updateCoord()
     {
         coord = world->getChunkCoordFromVec3(position);
+    }
+
+    glm::vec3 getViewBlock()
+    {
+        glm::vec3 rayPos = camera->pos;
+        glm::vec3 prevPos = rayPos;
+        glm::vec3 rayDir = glm::normalize(camera->forward) * stepIncrement;
+
+        while (glm::distance(camera->pos, rayPos) < reach)
+        {
+            int x = round(rayPos.x);
+            int y = round(rayPos.y);
+            int z = round(rayPos.z);
+
+            if (world->checkForVoxel(x, y, z))
+            {
+                return glm::vec3(x, y, z);
+            }
+
+            prevPos = rayPos;
+            rayPos += rayDir;
+        }
+
+        return glm::vec3(0.0f, -1000.0f, 0.0f);
     }
 
     void checkBlock()
@@ -89,9 +113,8 @@ public:
                     if (!world->checkForVoxel(placeX, placeY, placeZ))
                     {
                         glm::vec3 blockPos = glm::vec3(placeX, placeY, placeZ);
-                        float distToPlayer = glm::distance(blockPos, position);
 
-                        if (distToPlayer > playerWidth)
+                        if (!isPlayerInBlock(blockPos))
                         {
                             world->setVoxel(placeX, placeY, placeZ, 3); // Stone
                         }
@@ -118,48 +141,23 @@ public:
 
     void processInput(GLFWwindow *window, float dt)
     {
-        if (gamemode == SPECTATOR)
-        {
-            processSpectatorMovement(window, dt);
-        }
-        else
-        {
-            processNormalMovement(window, dt);
-        }
+        if (gamemode == SPECTATOR) processSpectatorMovement(window, dt);
+        else processNormalMovement(window, dt);
+
+        if(click) click = false;
+        if(rightClick) rightClick = false;
 
         if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
         {
-            if(mouseDown)
-            {
-                click = false;
-            } else
-            {
-                click = true;
-            }
-
+            if(!mouseDown) click = true;
             mouseDown = true;
-        } else
-        {
-            mouseDown = false;
-        }
+        } else mouseDown = false;
 
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
         {
-            if (rightMouseDown)
-            {
-                rightClick = false;
-            }
-            else
-            {
-                rightClick = true;
-            }
-
+            if (!rightMouseDown) rightClick = true;
             rightMouseDown = true;
-        }
-        else
-        {
-            rightMouseDown = false;
-        }
+        } else rightMouseDown = false;
 
         jump = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
 
@@ -178,9 +176,19 @@ public:
         }
 
         // Apply gravity
-        velocity.y -= gravity * dt;
+        inWater = isPlayerInWater();
+        if (!inWater) velocity.y -= gravity * dt;
+        else
+        {
+            velocity.y -= waterGravity * dt;
 
-        // Clamp velocities
+            velocity.x *= (1.0f - waterDrag * dt);
+            velocity.z *= (1.0f - waterDrag * dt);
+
+            if (!fly && velocity.y < -waterSinkSpeed)
+                velocity.y = -waterSinkSpeed;
+        }
+
         velocity.y = glm::clamp(velocity.y, -maxFallSpeed, maxFallSpeed);
         float horizontalSpeed = glm::length(glm::vec2(velocity.x, velocity.z));
         if (horizontalSpeed > maxMovementSpeed)
@@ -191,8 +199,13 @@ public:
         }
 
         moveWithCollision(dt);
-
         camera->setPos(position + glm::vec3(0.0f, playerHeight * 0.9f, 0.0f));
+    }
+
+    bool isHeadInWater()
+    {
+        glm::vec3 point = position + glm::vec3(0.0f, playerHeight * 0.9f, 0.0f);
+        return world->getVoxel(round(point.x), round(point.y), round(point.z)) == blockTypes[7];
     }
 
 private:
@@ -211,6 +224,8 @@ private:
     float friction = 0.1f;
 
     bool isSprinting = false;
+    bool inWater = false;
+    bool fly = false;
 
     float groundAcceleration = 20.0f;
     float airAcceleration = 5.0f;
@@ -263,14 +278,16 @@ private:
             inputDir = glm::normalize(inputDir);
 
         isSprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+        fly = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
 
         float targetSpeed = isSprinting? sprintSpeed : speed;
+        if (inWater) targetSpeed *= waterDrag;
 
         camera->updateFOV(isSprinting);
 
         glm::vec3 targetVelocity = inputDir * targetSpeed;
 
-        float accel = isGrounded ? groundAcceleration : airAcceleration;
+        float accel = isGrounded ? groundAcceleration : inWater ? airAcceleration * 0.8f : airAcceleration;
         velocity.x = glm::mix(velocity.x, targetVelocity.x, accel * dt);
         velocity.z = glm::mix(velocity.z, targetVelocity.z, accel * dt);
 
@@ -285,13 +302,16 @@ private:
                 velocity.z = 0;
         }
 
-        // Jump
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
         {
-            if (jump && isGrounded)
+            if (jump && isGrounded && !inWater)
             {
                 velocity.y = jumpForce;
                 isGrounded = false;
+            }
+            else if (inWater)
+            {
+                velocity.y = waterFloat;
             }
         }
     }
@@ -340,6 +360,79 @@ private:
             }
             velocity.y = 0;
         }
+    }
+
+    bool isPlayerInBlock(glm::vec3 blockPos)
+    {
+        float halfWidth = playerWidth / 2.0f;
+
+        // Check corners of player bounding box
+        glm::vec3 checkPoints[] = {
+            // Bottom corners
+            position + glm::vec3(-halfWidth, 0.0f, -halfWidth),
+            position + glm::vec3(halfWidth, 0.0f, -halfWidth),
+            position + glm::vec3(-halfWidth, 0.0f, halfWidth),
+            position + glm::vec3(halfWidth, 0.0f, halfWidth),
+
+            // Top corners
+            position + glm::vec3(-halfWidth, playerHeight, -halfWidth),
+            position + glm::vec3(halfWidth, playerHeight, -halfWidth),
+            position + glm::vec3(-halfWidth, playerHeight, halfWidth),
+            position + glm::vec3(halfWidth, playerHeight, halfWidth),
+
+            // Middle corners
+            position + glm::vec3(-halfWidth, playerHeight * 0.5f, -halfWidth),
+            position + glm::vec3(halfWidth, playerHeight * 0.5f, -halfWidth),
+            position + glm::vec3(-halfWidth, playerHeight * 0.5f, halfWidth),
+            position + glm::vec3(halfWidth, playerHeight * 0.5f, halfWidth),
+        };
+
+        for (const auto &point : checkPoints)
+        {
+            if (glm::distance(point, blockPos) < playerWidth)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool isPlayerInWater()
+    {
+        float halfWidth = playerWidth / 2.0f;
+        glm::vec3 pos = position;
+
+        // Check corners of player bounding box
+        glm::vec3 checkPoints[] = {
+            // Bottom corners
+            pos + glm::vec3(-halfWidth, 0.0f, -halfWidth),
+            pos + glm::vec3(halfWidth, 0.0f, -halfWidth),
+            pos + glm::vec3(-halfWidth, 0.0f, halfWidth),
+            pos + glm::vec3(halfWidth, 0.0f, halfWidth),
+
+            // Top corners
+            pos + glm::vec3(-halfWidth, playerHeight, -halfWidth),
+            pos + glm::vec3(halfWidth, playerHeight, -halfWidth),
+            pos + glm::vec3(-halfWidth, playerHeight, halfWidth),
+            pos + glm::vec3(halfWidth, playerHeight, halfWidth),
+
+            // Middle corners
+            pos + glm::vec3(-halfWidth, playerHeight * 0.5f, -halfWidth),
+            pos + glm::vec3(halfWidth, playerHeight * 0.5f, -halfWidth),
+            pos + glm::vec3(-halfWidth, playerHeight * 0.5f, halfWidth),
+            pos + glm::vec3(halfWidth, playerHeight * 0.5f, halfWidth),
+        };
+
+        for (const auto &point : checkPoints)
+        {
+            if (world->getVoxel(round(point.x), round(point.y), round(point.z)) == blockTypes[7])
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     bool checkCollision(glm::vec3 pos)
