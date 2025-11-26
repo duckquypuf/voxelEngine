@@ -11,6 +11,9 @@ extern float biomeScale;
 extern int terrainMinHeight;
 extern int terrainHeight;
 
+static int waterHeight = 64;
+static int sandHeight = 60;
+
 extern float caveGenLargeScale;
 extern float caveGenMediumScale;
 extern float caveGenSmallScale;
@@ -32,7 +35,11 @@ extern int treeMaxHeight;
 extern bool useRD;
 extern int renderDistance;
 
-extern float gravity;
+static float gravity = 10.0f;
+static float waterGravity = 3.5f;
+static float waterDrag = 0.5f;
+static float waterFloat = 4.0f;
+static float waterSinkSpeed = 1.0f;
 
 extern float cubeVertices[48*6];
 extern int faceChecks[6][3];
