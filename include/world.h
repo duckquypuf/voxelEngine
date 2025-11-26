@@ -14,7 +14,7 @@
 class World
 {
 public:
-    std::unordered_map<ChunkCoord, Chunk*> chunks;
+    std::unordered_map<ChunkCoord, Chunk *> chunks;
     std::queue<ChunkCoord> chunksToGenerate;
     std::unordered_set<ChunkCoord> chunksInQueue;
 
@@ -26,69 +26,72 @@ public:
 
     void updateRenderDistance(ChunkCoord centre, bool regenAll = false)
     {
-        if(!regenAll)
+        int maxDist = renderDistance + 1;
+
+        for (int d = 0; d < maxDist; d++)
         {
-            for (int x = centre.x - renderDistance - 1; x < centre.x + renderDistance + 1; x++)
+            for (int x = centre.x - d; x <= centre.x + d; x++)
             {
-                for (int z = centre.z - renderDistance - 1; z < centre.z + renderDistance + 1; z++)
+                for (int z = centre.z - d; z <= centre.z + d; z++)
                 {
+                    if (std::max(std::abs(x - centre.x), std::abs(z - centre.z)) != d)
+                        continue;
+
                     if (x < 0 || z < 0 || x >= worldWidth || z >= worldWidth)
                         continue;
-                        
+
                     ChunkCoord coord(x, z);
 
-                    if (chunks.find(coord) == chunks.end())
+                    if (!regenAll)
                     {
+                        if (chunks.find(coord) == chunks.end())
+                        {
+                            chunks[coord] = new Chunk(this, coord, true);
+                            chunks[coord]->populateVoxelMap();
+                        }
+                    }
+                    else
+                    {
+                        delete chunks[coord];
                         chunks[coord] = new Chunk(this, coord, true);
                         chunks[coord]->populateVoxelMap();
                     }
                 }
             }
-            
-            for (int x = centre.x - renderDistance; x < centre.x + renderDistance; x++)
+        }
+
+        // Add chunks to generation queue
+        for (int d = 0; d < maxDist - 1; d++)
+        {
+            for (int x = centre.x - d; x <= centre.x + d; x++)
             {
-                for (int z = centre.z - renderDistance; z < centre.z + renderDistance; z++)
+                for (int z = centre.z - d; z <= centre.z + d; z++)
                 {
+                    if (std::max(std::abs(x - centre.x), std::abs(z - centre.z)) != d)
+                        continue;
+
                     if (x < 0 || z < 0 || x >= worldWidth || z >= worldWidth)
                         continue;
-                        
+
                     ChunkCoord coord(x, z);
                     auto it = chunks.find(coord);
 
-                    if (it != chunks.end() && it->second != nullptr && it->second->shouldRegen && chunksInQueue.find(coord) == chunksInQueue.end())
+                    if (!regenAll)
                     {
-                        chunksToGenerate.push(coord);
-                        chunksInQueue.insert(coord);
+                        if (it != chunks.end() && it->second != nullptr && it->second->shouldRegen && chunksInQueue.find(coord) == chunksInQueue.end())
+                        {
+                            chunksToGenerate.push(coord);
+                            chunksInQueue.insert(coord);
+                        }
                     }
-                }
-            }
-        } else
-        {
-            for (int x = centre.x - renderDistance - 1; x < centre.x + renderDistance + 1; x++)
-            {
-                for (int z = centre.z - renderDistance - 1; z < centre.z + renderDistance + 1; z++)
-                {
-                    if (x < 0 || z < 0 || x >= worldWidth || z >= worldWidth)
-                        continue;
-
-                    ChunkCoord coord(x, z);
-
-                    chunks[coord] = new Chunk(this, coord, true);
-                    chunks[coord]->populateVoxelMap();
-                }
-            }
-
-            for (int x = centre.x - renderDistance; x < centre.x + renderDistance; x++)
-            {
-                for (int z = centre.z - renderDistance; z < centre.z + renderDistance; z++)
-                {
-                    if (x < 0 || z < 0 || x >= worldWidth || z >= worldWidth)
-                        continue;
-
-                    ChunkCoord coord(x, z);
-
-                    chunksToGenerate.push(coord);
-                    chunksInQueue.insert(coord);
+                    else
+                    {
+                        if (chunksInQueue.find(coord) == chunksInQueue.end())
+                        {
+                            chunksToGenerate.push(coord);
+                            chunksInQueue.insert(coord);
+                        }
+                    }
                 }
             }
         }
@@ -123,52 +126,6 @@ public:
         int chunkX = coord.x;
         int chunkZ = coord.z;
 
-        if(localX < 0)
-        {
-            chunkX--;
-            localX = chunkWidth-1;
-        } else if(localX > chunkWidth-1)
-        {
-            chunkX++;
-            localX = 0;
-        }
-
-        if (localZ < 0)
-        {
-            chunkZ--;
-            localZ = chunkWidth - 1;
-        }
-        else if (localZ > chunkWidth - 1)
-        {
-            chunkZ++;
-            localZ = 0;
-        }
-
-        if(localY < 0 || localY > chunkHeight-1) return false;
-        if(chunkX < 0 || chunkZ < 0 || chunkX > worldWidth-1 || chunkZ > worldWidth-1) return true;
-
-        ChunkCoord real(chunkX, chunkZ);
-        return chunks[real]->voxelMap[localX][localY][localZ].isSolid;
-    }
-
-    bool isVoxelSolid(int worldX, int worldY, int worldZ)
-    {
-        ChunkCoord coord = ChunkCoord();
-
-        coord.x = floor(worldX / chunkWidth);
-        coord.z = floor(worldZ / chunkWidth);
-
-        int localX = worldX % chunkWidth;
-        int localZ = worldZ % chunkWidth;
-
-        return isVoxelSolid(coord, localX, worldY, localZ);
-    }
-
-    bool isVoxelTransparent(ChunkCoord coord, int localX, int localY, int localZ)
-    {
-        int chunkX = coord.x;
-        int chunkZ = coord.z;
-
         if (localX < 0)
         {
             chunkX--;
@@ -197,7 +154,24 @@ public:
             return true;
 
         ChunkCoord real(chunkX, chunkZ);
-        return chunks[real]->voxelMap[localX][localY][localZ].isTransparent;
+        auto it = chunks.find(real);
+        if (it == chunks.end() || it->second == nullptr)
+            return false;
+
+        return it->second->voxelMap[localX][localY][localZ].isSolid;
+    }
+
+    bool isVoxelSolid(int worldX, int worldY, int worldZ)
+    {
+        ChunkCoord coord = ChunkCoord();
+
+        coord.x = floor(worldX / chunkWidth);
+        coord.z = floor(worldZ / chunkWidth);
+
+        int localX = worldX % chunkWidth;
+        int localZ = worldZ % chunkWidth;
+
+        return isVoxelSolid(coord, localX, worldY, localZ);
     }
 
     bool checkForVoxel(float worldX, float worldY, float worldZ)
@@ -214,9 +188,14 @@ public:
         int localX = x % chunkWidth;
         int localZ = z % chunkWidth;
 
-        if(coord.x < 0 || worldX < 0 || coord.z < 0 || worldZ < 0 || worldY < 0 || worldY > chunkHeight-1) return false;
+        if (coord.x < 0 || worldX < 0 || coord.z < 0 || worldZ < 0 || worldY < 0 || worldY > chunkHeight - 1)
+            return false;
 
-        return !chunks[coord]->voxelMap[localX][y][localZ].isAir;
+        auto it = chunks.find(coord);
+        if (it == chunks.end() || it->second == nullptr)
+            return false;
+
+        return !it->second->voxelMap[localX][y][localZ].isAir && !it->second->voxelMap[localX][y][localZ].isLiquid;
     }
 
     BlockType getVoxel(int worldX, int worldY, int worldZ)
@@ -236,7 +215,51 @@ public:
         if (coord.x < 0 || worldX < 0 || coord.z < 0 || worldZ < 0 || worldY < 0 || worldY > chunkHeight - 1)
             return blockTypes[0]; // Air
 
-        return chunks[coord]->voxelMap[localX][y][localZ];
+        auto it = chunks.find(coord);
+        if (it == chunks.end() || it->second == nullptr)
+            return blockTypes[0];
+
+        return it->second->voxelMap[localX][y][localZ];
+    }
+
+    BlockType getVoxel(ChunkCoord coord, int localX, int localY, int localZ)
+    {
+        int chunkX = coord.x;
+        int chunkZ = coord.z;
+
+        if (localX < 0)
+        {
+            chunkX--;
+            localX = chunkWidth - 1;
+        }
+        else if (localX > chunkWidth - 1)
+        {
+            chunkX++;
+            localX = 0;
+        }
+
+        if (localZ < 0)
+        {
+            chunkZ--;
+            localZ = chunkWidth - 1;
+        }
+        else if (localZ > chunkWidth - 1)
+        {
+            chunkZ++;
+            localZ = 0;
+        }
+
+        if (localY < 0 || localY > chunkHeight - 1)
+            return blockTypes[0];
+        if (chunkX < 0 || chunkZ < 0 || chunkX > worldWidth - 1 || chunkZ > worldWidth - 1)
+            return blockTypes[0];
+
+        ChunkCoord real(chunkX, chunkZ);
+        auto it = chunks.find(real);
+        if (it == chunks.end() || it->second == nullptr)
+            return blockTypes[0];
+
+        return it->second->voxelMap[localX][localY][localZ];
     }
 
     void generateTrees(ChunkCoord centre)
@@ -288,14 +311,11 @@ public:
 
                             if (treePlacement01 > treePlacementThreshold)
                             {
-                                // Find the ground height
                                 float heightValue01 = getPerlinNoise(coord.x * chunkWidth + x, coord.z * chunkWidth + z, biomeScale);
                                 int heightValue = heightValue01 * terrainHeight + terrainMinHeight;
 
-                                if(getVoxel(coord.x*chunkWidth + x, heightValue, coord.z*chunkWidth + z) != blockTypes[1]) // Grass
-                                {
+                                if (getVoxel(coord.x * chunkWidth + x, heightValue, coord.z * chunkWidth + z) != blockTypes[1])
                                     continue;
-                                }
 
                                 int treeY = heightValue + 1;
                                 int treeHeight = treeMinHeight + (rand() % (treeMaxHeight - treeMinHeight));
@@ -307,17 +327,17 @@ public:
 
                                     // Place trunk
                                     for (int i = 0; i < treeHeight; i++)
-                                        placeTreeVoxel(worldX, treeY + i, worldZ, 4); // Oak Log
+                                        placeTreeVoxel(worldX, treeY + i, worldZ, 4);
 
                                     // Place leaves
                                     for (int lx = -2; lx <= 2; lx++)
                                     {
                                         for (int lz = -2; lz <= 2; lz++)
                                         {
-                                            for (int ly = treeHeight - 3; ly < treeHeight-1; ly++)
+                                            for (int ly = treeHeight - 3; ly < treeHeight - 1; ly++)
                                             {
-                                                if(lx != 0 || lz != 0)
-                                                    placeTreeVoxel(worldX + lx, treeY + ly, worldZ + lz, 5); // Oak Leaves
+                                                if (lx != 0 || lz != 0)
+                                                    placeTreeVoxel(worldX + lx, treeY + ly, worldZ + lz, 5);
                                             }
                                         }
                                     }
@@ -327,15 +347,15 @@ public:
                                         for (int lz = -1; lz <= 1; lz++)
                                         {
                                             if (lx != 0 || lz != 0)
-                                                placeTreeVoxel(worldX + lx, treeY + treeHeight-1, worldZ + lz, 5); // Oak Leaves
+                                                placeTreeVoxel(worldX + lx, treeY + treeHeight - 1, worldZ + lz, 5);
                                         }
                                     }
 
-                                    placeTreeVoxel(worldX + 1, treeY + treeHeight, worldZ, 5); // Oak Leaves
-                                    placeTreeVoxel(worldX, treeY + treeHeight, worldZ + 1, 5); // Oak Leaves
-                                    placeTreeVoxel(worldX - 1, treeY + treeHeight, worldZ, 5); // Oak Leaves
-                                    placeTreeVoxel(worldX, treeY + treeHeight, worldZ - 1, 5); // Oak Leaves
-                                    placeTreeVoxel(worldX, treeY + treeHeight, worldZ, 5); // Oak Leaves
+                                    placeTreeVoxel(worldX + 1, treeY + treeHeight, worldZ, 5);
+                                    placeTreeVoxel(worldX, treeY + treeHeight, worldZ + 1, 5);
+                                    placeTreeVoxel(worldX - 1, treeY + treeHeight, worldZ, 5);
+                                    placeTreeVoxel(worldX, treeY + treeHeight, worldZ - 1, 5);
+                                    placeTreeVoxel(worldX, treeY + treeHeight, worldZ, 5);
 
                                     it->second->shouldRegen = true;
                                 }
@@ -442,6 +462,52 @@ public:
         }
     }
 
+    void generateCave(ChunkCoord coord)
+    {
+        bool needsCaveGen = false;
+        int cx = coord.x;
+        int cz = coord.z;
+        if (cx < 0 || cz < 0 || cx >= worldWidth || cz >= worldWidth)
+            return;
+
+        auto it = chunks.find(coord);
+        if (it != chunks.end() && it->second != nullptr && !it->second->cavesGenerated)
+            needsCaveGen = true;
+
+        if (!needsCaveGen)
+            return;
+
+        if (it == chunks.end() || it->second == nullptr || it->second->cavesGenerated)
+            return;
+
+        bool chunkModified = false;
+
+        for (int x = 0; x < chunkWidth; x++)
+        {
+            for (int y = 1; y < chunkHeight - 1; y++)
+            {
+                for (int z = 0; z < chunkWidth; z++)
+                {
+                    int worldX = coord.x * chunkWidth + x;
+                    int worldZ = coord.z * chunkWidth + z;
+
+                    float caveNoise = getCaveNoise(worldX, y, worldZ);
+
+                    if (caveNoise > caveGenThreshold && !it->second->voxelMap[x][y][z].isAir)
+                    {
+                        it->second->voxelMap[x][y][z] = blockTypes[0];
+                        chunkModified = true;
+                    }
+                }
+            }
+        }
+
+        if (chunkModified)
+            it->second->shouldRegen = true;
+
+        it->second->cavesGenerated = true;
+    }
+
     void generateLodes(ChunkCoord centre)
     {
         bool needsLodeGen = false;
@@ -490,11 +556,12 @@ public:
                             int worldX = coord.x * chunkWidth + x;
                             int worldZ = coord.z * chunkWidth + z;
 
-                            for(int l = 0; l < lodeCount; l++)
+                            for (int l = 0; l < lodeCount; l++)
                             {
-                                const Lode& lode = lodes[l];
+                                const Lode &lode = lodes[l];
 
-                                if(y < lode.minHeight || y > lode.maxHeight) continue;
+                                if (y < lode.minHeight || y > lode.maxHeight)
+                                    continue;
 
                                 float lodeNoise = getPerlinNoise3D(worldX + lode.offset, y, worldZ + lode.offset, lode.scale);
 
@@ -520,7 +587,6 @@ public:
 
     int genVoxel(ChunkCoord coord, int x, int y, int z)
     {
-        /* TERRAIN PASS */
         float heightValue01 = getPerlinNoise(coord.x * chunkWidth + x, coord.z * chunkWidth + z, biomeScale);
         int heightValue = heightValue01 * terrainHeight + terrainMinHeight;
 
@@ -530,18 +596,33 @@ public:
         {
             voxel = 0; // Air
         }
-        else if (y == heightValue)
+        else if (heightValue < waterHeight)
         {
-            return 1; // Grass
+            if (y >= sandHeight)
+            {
+                return 6; // Sand
+            }
+            else
+                return 3; // Stone
         }
-        else if (y >= heightValue - 4 && y < heightValue)
+        else
         {
-            return 2; // Dirt
+            if (y == heightValue)
+            {
+                return 1; // Grass
+            }
+            else if (y >= heightValue - 4 && y < heightValue)
+            {
+                return 2; // Dirt
+            }
+            else if (y < heightValue - 4)
+            {
+                return 3; // Stone
+            }
         }
-        else if (y < heightValue - 4)
-        {
-            return 3; // Stone
-        }
+
+        if (voxel == 0 && y < waterHeight)
+            voxel = 7; // Water
 
         return voxel;
     }
@@ -563,31 +644,47 @@ public:
         if (coord.x < 0 || worldX < 0 || coord.z < 0 || worldZ < 0 || worldY < 0 || worldY > chunkHeight - 1)
             return;
 
-        chunks[coord]->setVoxel(localX, y, localZ, block);
+        auto it = chunks.find(coord);
+        if (it != chunks.end() && it->second != nullptr)
+        {
+            it->second->setVoxel(localX, y, localZ, block);
+        }
     }
-    
+
     void regenerateChunks(ChunkCoord origin, int localX, int localZ)
     {
-        chunks[origin]->generateMesh();
-
-        if(localX == 0 && origin.x > 0)
+        auto it = chunks.find(origin);
+        if (it != chunks.end() && it->second != nullptr)
         {
-            chunks[ChunkCoord(origin.x-1, origin.z)]->generateMesh();
+            it->second->generateMesh();
         }
 
-        if(localZ == 0 && origin.z > 0)
+        if (localX == 0 && origin.x > 0)
         {
-            chunks[ChunkCoord(origin.x, origin.z-1)]->generateMesh();
+            auto neighbor = chunks.find(ChunkCoord(origin.x - 1, origin.z));
+            if (neighbor != chunks.end() && neighbor->second != nullptr)
+                neighbor->second->generateMesh();
         }
 
-        if(localX == chunkWidth-1 && origin.x < worldWidth-1)
+        if (localZ == 0 && origin.z > 0)
         {
-            chunks[ChunkCoord(origin.x+1, origin.z)]->generateMesh();
+            auto neighbor = chunks.find(ChunkCoord(origin.x, origin.z - 1));
+            if (neighbor != chunks.end() && neighbor->second != nullptr)
+                neighbor->second->generateMesh();
         }
 
-        if(localZ == chunkWidth - 1 && origin.z < worldWidth - 1)
+        if (localX == chunkWidth - 1 && origin.x < worldWidth - 1)
         {
-            chunks[ChunkCoord(origin.x, origin.z+1)]->generateMesh();
+            auto neighbor = chunks.find(ChunkCoord(origin.x + 1, origin.z));
+            if (neighbor != chunks.end() && neighbor->second != nullptr)
+                neighbor->second->generateMesh();
+        }
+
+        if (localZ == chunkWidth - 1 && origin.z < worldWidth - 1)
+        {
+            auto neighbor = chunks.find(ChunkCoord(origin.x, origin.z + 1));
+            if (neighbor != chunks.end() && neighbor->second != nullptr)
+                neighbor->second->generateMesh();
         }
     }
 };
